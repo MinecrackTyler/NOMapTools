@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!--
+  Local build configuration for NOMapLoader.
+
+  SETUP INSTRUCTIONS:
+  1. Copy this file and rename the copy to "Directory.Build.props" (remove .template)
+  2. Update the paths below to match your local environment
+  3. The Directory.Build.props file is gitignored and won't be committed
+  -->
+
+  <PropertyGroup>
+    <!-- Path to your Nuclear Option game installation -->
+    <!-- Examples:
+    Windows Steam: C:\Program Files (x86)\Steam\steamapps\common\Nuclear Option
+    Custom Steam library: D:\SteamLibrary\steamapps\common\Nuclear Option
+    -->
+    <NuclearOptionDir>/path/to/NO</NuclearOptionDir>
+    <UnityPluginsDir>/path/to/unity/project/plugins/dir</UnityPluginsDir>
+    <UnityEditorDir>/path/to/unity/editor/dir</UnityEditorDir>
+  </PropertyGroup>
+
+  <!-- Derived paths - generally no need to modify these -->
+  <PropertyGroup>
+    <GameManagedDir>$(NuclearOptionDir)\NuclearOption_Data\Managed</GameManagedDir>
+    <UnityManagedDir>$(UnityEditorDir)/Editor/Data/Managed</UnityManagedDir>
+  </PropertyGroup>
+
+</Project>
