@@ -72,6 +72,21 @@ public class MeshEditorTool(RoadEditorWindow window)
 			Mesh mesh = GenerateRoadMesh(road);
 			if (mesh == null) continue;
 
+			string prefabPath = PrefabStageUtility.GetCurrentPrefabStage().assetPath;
+			string prefabDirectory = System.IO.Path.GetDirectoryName(prefabPath);
+
+			string meshFolder = prefabDirectory + "/GeneratedMeshes";
+
+			if (!AssetDatabase.IsValidFolder(meshFolder))
+			{
+				AssetDatabase.CreateFolder(prefabDirectory, "GeneratedMeshes");
+			}
+
+			string meshPath = meshFolder + "/" + road.GetHashCode() + "_RoadMesh.asset";
+
+			AssetDatabase.CreateAsset(mesh, meshPath);
+			AssetDatabase.SaveAssets();
+			
 			GameObject go = new GameObject("RoadMesh");
 			Undo.RegisterCreatedObjectUndo(go, "Create Road Mesh");
 

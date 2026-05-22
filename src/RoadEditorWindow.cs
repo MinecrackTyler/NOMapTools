@@ -30,10 +30,6 @@ namespace NOMapTools
         
         private bool isDraggingBox;
         private Vector2 boxStart;
-        
-        private static readonly FieldInfo roadBoundsField =
-            typeof(Road).GetField("bounds",
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 
         [MenuItem("Window/Road Tool")]
         public static void OpenWindow()
@@ -69,8 +65,8 @@ namespace NOMapTools
                 MapSettings map = FindObjectInCurrentStage<MapSettings>();
                 if (map != null)
                 {
-                    activeNetwork = map.RoadNetwork;
-                    networkOwner = map;
+                    activeNetwork = map.RoadNetwork.RoadNetwork;
+                    networkOwner = map.RoadNetwork;
                     selectedRoads.Clear();
                 }
             }
@@ -80,8 +76,8 @@ namespace NOMapTools
                 MapSettings map = FindObjectInCurrentStage<MapSettings>();
                 if (map != null)
                 {
-                    activeNetwork = map.SeaLanes;
-                    networkOwner = map;
+                    activeNetwork = map.SeaLanes.RoadNetwork;
+                    networkOwner = map.SeaLanes;
                     selectedRoads.Clear();
                 }
             }
@@ -139,9 +135,6 @@ namespace NOMapTools
 
             roadEditorTool?.OnSceneGUI(sceneView);
             
-
-            
-
             DrawNetwork(sceneView);
             HandleBoxSelection(sceneView);
             
@@ -168,21 +161,65 @@ namespace NOMapTools
             foreach (var road in activeNetwork.roads)
             {
                 if (!IsVisible(road, planes)) continue;
-
                 DrawRoadLines(road);
 
                 if (!roadEditorTool.EditPointsMode)
                     DrawSelectionButton(road);
             }
-
+            
             if (!roadEditorTool.EditPointsMode && selectedRoads.Count > 0)
-                DrawGroupMoveHandle();
+            {
+                switch (Tools.current)
+                {
+                    case Tool.Move:
+                        DrawGroupMoveHandle();
+                        break;
+                    case Tool.Rotate:
+                        DrawGroupRotationHandle();
+                        break;
+                }
+            }
+        }
+
+        private void DrawGroupRotationHandle()
+        {
+            Vector3 pivot = GetGroupCenter();
+    
+            EditorGUI.BeginChangeCheck();
+            
+            Quaternion currentRotation = Quaternion.identity;
+            Quaternion newRotation = Handles.RotationHandle(currentRotation, pivot);
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(networkOwner, "Rotate Roads");
+                
+                Quaternion deltaRotation = newRotation * Quaternion.Inverse(currentRotation);
+
+                foreach (var road in selectedRoads)
+                {
+                    for (int i = 0; i < road.points.Count; i++)
+                    {
+                        Vector3 worldPos = road.points[i].AsVector3();
+                        
+                        Vector3 relativePos = worldPos - pivot;
+                        Vector3 rotatedPos = (deltaRotation * relativePos) + pivot;
+                
+                        road.points[i] = new GlobalPosition(rotatedPos);
+                    }
+            
+                    road.UpdateBB();
+                    road.CalcLength();
+                }
+
+                MarkNetworkDirty();
+                EditorUtility.SetDirty(networkOwner);
+            }
         }
 
         public static bool IsVisible(Road road, Plane[] planes)
         {
-            if (roadBoundsField == null) return true;
-            Bounds bounds = (Bounds)roadBoundsField.GetValue(road);
+            Bounds bounds = road.bounds;
             return GeometryUtility.TestPlanesAABB(planes, bounds);
         }
 
