@@ -1,0 +1,13 @@
+{
+  "name": "com.minec.maptools",
+  "version": "1.0.0",
+  "displayName": "Nuclear Option Map Tools",
+  "description": "Map authoring tools for Nuclear Option.",
+  "unity": "2022.3",
+  "keywords": [
+    "utility"
+  ],
+  "author": {
+    "name": "MinecrackTyler"
+  }
+}

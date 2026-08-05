@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using RoadPathfinding;
 using UnityEditor;
@@ -8,9 +7,10 @@ using UnityEngine;
 
 namespace NOMapTools
 {
-    public class RoadEditorWindow : EditorWindow
+    public class RoadTool : MapTool
     {
-        // Instance-based state
+        public override string ToolName => "Road Tool";
+
         public RoadNetwork ActiveNetwork => activeNetwork;
         public HashSet<Road> SelectedRoads => selectedRoads;
         public Object NetworkOwner => networkOwner;
@@ -30,31 +30,16 @@ namespace NOMapTools
         
         private bool isDraggingBox;
         private Vector2 boxStart;
-
-        [MenuItem("Window/Road Tool")]
-        public static void OpenWindow()
-        {
-            var window = GetWindow<RoadEditorWindow>();
-            window.titleContent = new GUIContent("Road Tool");
-            window.Show();
-        }
-
-        private void OnEnable()
+	
+	
+        public override void OnEnable()
         {
             roadEditorTool ??= new RoadEditorTool(this);
             meshEditorTool ??= new MeshEditorTool(this);
-            SceneView.duringSceneGui -= OnSceneGUI;
-            SceneView.duringSceneGui += OnSceneGUI;
         }
 
-        private void OnDisable()
+        public override void OnGUI()
         {
-            SceneView.duringSceneGui -= OnSceneGUI;
-        }
-
-        private void OnGUI()
-        {
-            GUILayout.Label("Road Tool", EditorStyles.boldLabel);
             toolEnabled = EditorGUILayout.Toggle("Tool Enabled", toolEnabled);
 
             EditorGUILayout.Space();
@@ -110,8 +95,8 @@ namespace NOMapTools
                 selectedRoads.Clear();
             
             EditorGUILayout.Space();
-
-            tab = GUILayout.Toolbar(tab, ["Road Tools", "Mesh Tools"]);
+            
+            tab = GUILayout.Toolbar(tab, new[] {"Road Tools", "Mesh Tools"});
             EditorGUILayout.Space();
             switch (tab)
             {
@@ -122,13 +107,9 @@ namespace NOMapTools
                     meshEditorTool.Draw();
                     break;
             }
-            
-            
-
-            if (GUI.changed) SceneView.RepaintAll();
         }
 
-        private void OnSceneGUI(SceneView sceneView)
+        public override void OnSceneGUI(SceneView sceneView)
         {
             if (!toolEnabled || activeNetwork == null || !activeNetwork.Exists())
                 return;
@@ -144,10 +125,8 @@ namespace NOMapTools
                 activeNetwork.RegenerateNetwork();
                 networkDirty = false;
             }
-
-            if (GUI.changed) sceneView.Repaint();
         }
-
+	
         public void MarkNetworkDirty()
         {
             networkDirty = true;
@@ -219,8 +198,15 @@ namespace NOMapTools
 
         public static bool IsVisible(Road road, Plane[] planes)
         {
-            Bounds bounds = road.bounds;
-            return GeometryUtility.TestPlanesAABB(planes, bounds);
+            FieldInfo boundsInfo = typeof(Road).GetField("bounds", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (boundsInfo != null)
+            {
+                Bounds bounds = (Bounds)boundsInfo.GetValue(road);
+                return GeometryUtility.TestPlanesAABB(planes, bounds);
+            }
+
+            return false;
         }
 
         private void DrawRoadLines(Road road)
@@ -311,7 +297,7 @@ namespace NOMapTools
             }
         }
 
-        private Rect GetScreenRect(Vector2 p1, Vector2 p2) => Rect.MinMaxRect(Mathf.Min(p1.x, p2.x), Mathf.Min(p1.y, p2.y), Mathf.Max(p1.x, p2.x), Mathf.Max(p1.y, p2.y));
+        private static Rect GetScreenRect(Vector2 p1, Vector2 p2) => Rect.MinMaxRect(Mathf.Min(p1.x, p2.x), Mathf.Min(p1.y, p2.y), Mathf.Max(p1.x, p2.x), Mathf.Max(p1.y, p2.y));
 
         public static Vector3 GetRoadCenter(Road road)
         {
