@@ -1,0 +1,71 @@
+#pragma kernel CSMain
+#include "SimplexNoise2D.hlsl"
+
+float2 _Datum_WorldExtent;
+uint   _CountBufferOffset;
+float2 _AltitudeRange;
+float  _AltIntensity;
+float  _LushIntensity;
+float  _LargeNoiseScale;
+float  _NoiseSmallScale;
+float  _BlastIntensity;
+
+ByteAddressBuffer _CountBuffer;
+
+StructuredBuffer<float3> _VisibleBuffer;
+
+struct PackedColorData
+{
+    uint out1;
+    uint out2;
+};
+RWStructuredBuffer<PackedColorData> _ColorDataBuffer;
+
+Texture2D<float4> _LushMap;
+SamplerState      sampler_LushMap;
+
+Texture2D<float4> _Global_BlastMap;
+SamplerState      sampler_Global_BlastMap;
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint threadID = id.x;
+    
+    uint offset = (_CountBufferOffset + 3) * 4;
+    uint maxInstances = _CountBuffer.Load(offset);
+    
+    if (threadID >= maxInstances)
+        return;
+    
+    float3 pos = _VisibleBuffer[threadID];
+    
+    float2 terrainUV = saturate((pos.xz + _Datum_WorldExtent) / (_Datum_WorldExtent * 2.0f));
+    
+    float normAlt = saturate((pos.y - _AltitudeRange.x) / (_AltitudeRange.y - _AltitudeRange.x));
+    float smoothAlt = normAlt * normAlt * (3.0f - 2.0f * normAlt);
+    float altWeight = saturate(smoothAlt * _AltIntensity);
+    
+    float lushSample = _LushMap.SampleLevel(sampler_LushMap, terrainUV, 0).x;
+    float lushWeight = saturate(lushSample * _LushIntensity);
+    
+    float noise1 = snoise(pos.xz * _LargeNoiseScale);
+    float noise2 = snoise(pos.xz * _NoiseSmallScale);
+    float noiseVal1 = saturate(pow(noise1 + 0.5f, 3.0f));
+    float noiseVal2 = saturate(pow(noise2 + 0.5f, 3.0f));
+    
+    float blastSample = _Global_BlastMap.SampleLevel(sampler_Global_BlastMap, terrainUV, 0).x;
+    float blastWeight = saturate(blastSample * _BlastIntensity);
+    
+    uint altPacked    = (uint)round(altWeight * 65535.0f);
+    uint lushPacked   = (uint)round(lushWeight * 255.0f);
+    uint blastPacked  = (uint)round(blastWeight * 255.0f);
+    uint noise1Packed = (uint)round(noiseVal1 * 65535.0f);
+    uint noise2Packed = (uint)round(noiseVal2 * 65535.0f);
+
+    PackedColorData outputData;
+    outputData.out1 = (blastPacked << 24) | (lushPacked << 16) | (altPacked & 0xFFFF);
+    outputData.out2 = (noise2Packed << 16) | (noise1Packed & 0xFFFF);
+    
+    _ColorDataBuffer[threadID] = outputData;
+}
