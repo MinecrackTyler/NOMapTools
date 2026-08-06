@@ -2,7 +2,9 @@
     "name": "minec.maptools",
     "rootNamespace": "minec.maptools",
     "references": [],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": true,
