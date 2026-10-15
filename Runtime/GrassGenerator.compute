@@ -1,0 +1,166 @@
+// GrassGenerator.compute
+
+#pragma kernel CSMain
+
+Texture2D<float>      _HeightMap;        
+Texture2D<float>      _BlockerMap;       
+Texture2DArray<float> _LushMapArray;     
+Texture2D<float>      _Global_BlastMap;
+
+SamplerState sampler_HeightMap;
+SamplerState sampler_BlockerMap;
+SamplerState sampler_LushMapArray;
+SamplerState sampler_Global_BlastMap;
+
+struct GrassConfig
+{
+    float ScaleMin;
+    float ScaleMax;
+    float Y_Scale;
+    float Y_Offset;
+    
+    float4 BaseColor;        
+    uint   MainTextureIndex;
+    float  Cutoff;
+    float  ViewRadius;
+    float  _pad0;            
+    
+    uint   LushTextureIndex;
+    float  LushMultiplier;
+    float  LushExponent;
+    float  LushThreshold;
+};
+
+StructuredBuffer<GrassConfig> _ConfigBuffer;
+int _ConfigBufferCount;
+
+struct GrassInstance
+{
+    float3 positionWS;
+    float  configIndexAsFloat; 
+};
+
+AppendStructuredBuffer<GrassInstance> _PositionBuffer;
+
+float4 _Height;              
+float4 _BlastThreshold;       
+
+float _PositionJitter;
+float _DitheringMinDist;
+float _DitheringMaxDist;
+float _DitheringFalloffPowers;
+
+int   _WindowSize;            
+int   _WindowSnapping;        
+float _MeshRadius;
+int   _MillimetersPerCell;    
+
+float4 _WindowIndex;          
+
+float3 _Datum_OriginPosition;
+float2 _Datum_WorldExtent;
+float3 _Global_CameraPosition; 
+
+float Hash(int2 cell, uint salt)
+{
+    uint x = asuint(cell.x);
+    uint y = asuint(cell.y);
+    uint h = x * 374761393u + y * 668265263u + salt * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h = h ^ (h >> 16);
+    return float(h) * (1.0 / 4294967295.0);
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    float cellSize = (float)_MillimetersPerCell * 0.001f;
+    
+    float2 windowCenterWS = _WindowIndex.xy * (float)_WindowSnapping;
+    float2 windowOriginWS = windowCenterWS - float2((float)_WindowSize, (float)_WindowSize) * 0.5f;
+    
+    float edgeInset = _MeshRadius;
+    float2 cellOriginWS = windowOriginWS + float2(id.xy) * cellSize;
+    
+    float2 distFromWindowEdge = min(
+        cellOriginWS - windowOriginWS,
+        (windowOriginWS + float2((float)_WindowSize, (float)_WindowSize)) - cellOriginWS
+    );
+    if (distFromWindowEdge.x < edgeInset || distFromWindowEdge.y < edgeInset)
+    {
+        return;
+    }
+
+    int2 globalCell = int2(floor(cellOriginWS / cellSize));
+    
+    float jitterX = Hash(globalCell, 100u);
+    float jitterY = Hash(globalCell, 200u);
+    float2 jitter = (float2(jitterX, jitterY) - 0.5f) * _PositionJitter * cellSize;
+    float2 sampleWS = cellOriginWS + jitter;
+    
+    float2 uv = (sampleWS + _Datum_WorldExtent) / (_Datum_WorldExtent * 2.0f);
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f)
+    {
+        return;
+    }
+    
+    float blastValue = _Global_BlastMap.SampleLevel(sampler_Global_BlastMap, uv, 0.0f);
+    float blastFactor = saturate((blastValue - _BlastThreshold.x) * _BlastThreshold.y);
+    if (blastFactor >= 1.0f)
+    {
+        return; 
+    }
+    
+    float2 blockerUV = (sampleWS - windowOriginWS) / (float)_WindowSize;
+    float blocker = _BlockerMap.SampleLevel(sampler_BlockerMap, blockerUV, 0.0f);
+    if (blocker < 0.5f)
+    {
+        return;
+    }
+    
+    uint configIndex = (uint)(Hash(globalCell, 300u) * (float)_ConfigBufferCount);
+    configIndex = min(configIndex, (uint)_ConfigBufferCount - 1u);
+    GrassConfig cfg = _ConfigBuffer[configIndex];
+    
+    float lushRaw = _LushMapArray.SampleLevel(sampler_LushMapArray, float3(uv, (float)cfg.LushTextureIndex), 0.0f);
+    float lushCurved = pow(saturate(lushRaw * cfg.LushMultiplier), max(cfg.LushExponent, 0.0001f));
+    
+    #if !defined(FORCE_SPAWN_ALL)
+    if (lushCurved < cfg.LushThreshold)
+    {
+        return;
+    }
+    #endif
+    
+    float minDistWS = _DitheringMinDist * (float)_WindowSize * 0.5f;
+    float maxDistWS = _DitheringMaxDist * (float)_WindowSize * 0.5f;
+    
+    float2 sampleLocalXZ = sampleWS + _Datum_OriginPosition.xz;
+    float distToCamera = distance(_Global_CameraPosition, float3(sampleLocalXZ.x, 0.0f, sampleLocalXZ.y));
+    
+    float distFade = 1.0f - saturate((distToCamera - minDistWS) / max(maxDistWS - minDistWS, 0.0001f));
+    distFade = pow(saturate(distFade), max(_DitheringFalloffPowers, 0.0001f));
+
+    float spawnChance = saturate(lushCurved * (1.0f - blastFactor) * distFade);
+    
+    float roll = Hash(globalCell, 400u);
+    if (roll > spawnChance)
+    {
+        return;
+    }
+    
+    float2 heightUV = (sampleWS - windowOriginWS) / (float)_WindowSize;
+    float heightNorm = _HeightMap.SampleLevel(sampler_HeightMap, heightUV, 0.0f);
+    if (heightNorm <= 0.0f)
+        return;
+    
+    float worldY = _Height.x + _Height.y * heightNorm + cfg.Y_Offset;
+    
+    float3 localXYZ = float3(sampleWS.x, worldY, sampleWS.y) + _Datum_OriginPosition;
+
+    GrassInstance inst;
+    inst.positionWS = localXYZ;
+    inst.configIndexAsFloat = (float)configIndex;
+
+    _PositionBuffer.Append(inst);
+}

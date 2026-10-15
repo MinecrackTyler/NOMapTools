@@ -1,0 +1,32 @@
+#pragma kernel CSMain
+
+RWStructuredBuffer<float3> _PositionBuffer; 
+float4 _DetailBlast; 
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    
+    uint bufferLength, stride;
+    _PositionBuffer.GetDimensions(bufferLength, stride);
+    if (index >= bufferLength)
+        return;
+
+    float3 treePos = _PositionBuffer[index];
+    
+    if (treePos.y < -50000.0f)
+        return;
+
+    float3 blastPos = _DetailBlast.xyz;
+    float blastRadius = _DetailBlast.w;
+    
+    float3 delta = treePos - blastPos;
+    float sqrDist = dot(delta, delta);
+    float sqrRadius = blastRadius * blastRadius;
+
+    if (sqrDist <= sqrRadius)
+    {
+        _PositionBuffer[index] = float3(treePos.x, -100000.0f, treePos.z);
+    }
+}
